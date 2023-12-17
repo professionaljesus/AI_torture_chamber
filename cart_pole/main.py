@@ -6,7 +6,7 @@ from neural_net import NeuralNetwork, torch, nn
 Memory = namedtuple('Memory', ('state', 'action', 'next_state', 'reward'))
 memories = deque(maxlen=10000)
 
-env = gym.make("CartPole-v1", render_mode="human")
+env = gym.make("CartPole-v1")
 
 device = (
     "cuda"
