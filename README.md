@@ -7,4 +7,4 @@ Pretty successful cart pole balancing network using (deep?) Q-learning that mana
 
 ### car racing
 This car has been severely tortured into submission.
-![](punished_car.gif)
+![](shaky_driver.gif)
