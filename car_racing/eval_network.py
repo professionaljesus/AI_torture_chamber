@@ -3,10 +3,14 @@ import gymnasium as gym
 import numpy as np
 import os
 import cv2
+import argparse
 from itertools import count
 from gymnasium.wrappers.monitoring.video_recorder import VideoRecorder
 from neural_net import torch, NeuralNetwork
 from itertools import count
+
+parser = argparse.ArgumentParser('record')
+args = parser.parse_args()
 
 interrupted = False
 def signal_handler(signal, frame):
@@ -31,7 +35,8 @@ n_outputs = len(turning_bins)
 model = NeuralNetwork(0, n_outputs)
 model.load_state_dict(model_state_dict)
 
-recorder = VideoRecorder(env, 'video.mp4')
+if args.record:
+    recorder = VideoRecorder(env, 'video.mp4')
 obs, info = env.reset()
 
 lower = np.array([0, 0, 100], dtype="uint8")
@@ -41,14 +46,15 @@ old_state = torch.from_numpy(cv2.inRange(image, lower, upper)).unsqueeze(0).to(t
 old_old_state = torch.from_numpy(cv2.inRange(image, lower, upper)).unsqueeze(0).to(torch.float32)
 survived = 0
 for i in count():
-    recorder.capture_frame()
+    if interrupted:
+        break
+    if args.record:
+        recorder.capture_frame()
     survived += 1
-    if survived < 30:
+    if survived < 50:
         env.step([0,0,0])
         continue
-    acc = 0
-    if i % 3 == 0:
-        acc = 0.1
+    acc = 0.07
     action = [0, acc ,0]
     turn_id = 0
     with torch.no_grad():
@@ -68,15 +74,17 @@ for i in count():
     if state.mean() < 0.01:
         terminated = True
 
+    if args.record and truncated:
+        break
 
     if terminated or truncated:
+        recorder.recorded_frames = []
         obs, info = env.reset()
         survived = 0
 
-    if truncated:
-        break
 
 env.close()
 
-recorder.close()
+if args.record:
+    recorder.close()
 
