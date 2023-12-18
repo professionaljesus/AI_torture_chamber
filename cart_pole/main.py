@@ -1,4 +1,5 @@
 import random
+import os
 import gymnasium as gym
 from collections import namedtuple, deque
 from neural_net import NeuralNetwork, torch, nn
@@ -27,7 +28,6 @@ old_observation, info = env.reset(seed=42)
 
 gamma = 0.99
 TAU = 0.005
-
 n_steps = 20000
 batch_size = 128
 learning_rate = 0.001
@@ -95,5 +95,5 @@ for i in range(n_steps):
         print('{:.2f}%,\t max: {},\t min {},\t avg: {:.2f},\t loss: {}'.format(100*i/n_steps, max(stats), min(stats), sum(stats) / len(stats), loss))
         old_observation, info = env.reset()
 
-torch.save(model.state_dict(), 'model.torch_state_dict')
+torch.save(model.state_dict(), os.path.join(os.path.dirname(__file__),'model.torch_state_dict'))
 env.close()

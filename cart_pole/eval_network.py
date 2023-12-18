@@ -1,11 +1,12 @@
 import gymnasium as gym
+import os
 from gymnasium.wrappers.monitoring.video_recorder import VideoRecorder
 from neural_net import torch, NeuralNetwork
 from itertools import count
 
 env =gym.make("CartPole-v1", render_mode='rgb_array')
 recorder = VideoRecorder(env, 'video.mp4')
-model_state_dict = torch.load('model.torch_state_dict')
+model_state_dict = torch.load(os.path.join(os.path.dirname(__file__),'model.torch_state_dict'))
 
 model = NeuralNetwork(env.observation_space.shape[0], env.action_space.n)
 model.load_state_dict(model_state_dict)
