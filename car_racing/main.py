@@ -33,8 +33,15 @@ device = (
 )
 print(f"Using {device} device")
 image_shape = (83, 96)
+
 model = NeuralNetwork(image_shape, n_outputs).to(device)
+
+if False:
+    model_state_dict = torch.load(os.path.join(os.path.dirname(__file__),'model.torch_state_dict'))
+    model.load_state_dict(model_state_dict)
+
 target_net = NeuralNetwork(image_shape, n_outputs).to(device)
+
 target_net.load_state_dict(model.state_dict())
 
 gamma = 0.99
@@ -81,6 +88,11 @@ lower = np.array([0, 0, 100], dtype="uint8")
 upper = np.array([0, 0, 110], dtype="uint8")
 image = cv2.cvtColor(obs[:83,:,:], cv2.COLOR_BGR2HSV)
 old_state = torch.from_numpy(cv2.inRange(image, lower, upper)).unsqueeze(0).to(torch.float32)
+f, ax = plt.subplots()
+im = [ax.imshow(image)]
+
+survived = 0
+
 for i in range(n_steps):
     action = [0,0.1,0]
     eps = EPSILON * (1.0 - i/n_steps)
@@ -94,25 +106,33 @@ for i in range(n_steps):
             turn_id = logits.argmax().item()
 
     action[0] = turning_bins[turn_id]
+    if survived < 30
+
     obs, reward, terminated, truncated, info = env.step(action)
+    survived += 1
 
     image = cv2.cvtColor(obs[:83,:,:], cv2.COLOR_BGR2HSV)
     state = torch.from_numpy(cv2.inRange(image, lower, upper)).unsqueeze(0).to(torch.float32)
 
-    road_reward = state[0, 45:55, 55:65].mean() / 255.0
-    if state.mean() < 0.01:
+    im[0].set_data(image[:, :])
+    plt.show(block=False)
+    plt.pause(1)
+
+    road_reward = (state[0, 50:66, 40:56].mean() - (166 - state[0, 66:76, 40:56].mean())) / 255.0
+    if state[0, 66:76, 40:56].mean() < 1 and survived > 10:
         print('----- Off Road -----')
         terminated = True
         road_reward = -1
-
-    memories.append(Memory(old_state, turn_id, state, road_reward))
+    if survived > 10:
+        memories.append(Memory(old_state, turn_id, state, road_reward))
     old_state = state
 
     loss = optimize_model()
-    print('wheel_angle: {:.2f}\t road_reward {:.4f}\t reward: {:.4f}\t loss: {}'.format(turning_bins[turn_id],road_reward, reward, loss))
+    print('{:.2f}%\t wheel_angle: {:.2f}\t road_reward {:.4f}\t reward: {:.4f}\t loss: {}'.format(eps,turning_bins[turn_id],road_reward, reward, loss))
 
     if terminated or truncated:
         obs, info = env.reset()
+        survived = 0
 
     if interrupted:
         break
