@@ -19,7 +19,8 @@ def signal_handler(signal, frame):
 
 signal.signal(signal.SIGINT, signal_handler)
 
-env = gym.make("CarRacing-v2", render_mode='rgb_array')
+
+
 device = (
     "cuda"
     if torch.cuda.is_available()
@@ -35,7 +36,9 @@ n_outputs = len(turning_bins)
 model = NeuralNetwork(0, n_outputs)
 model.load_state_dict(model_state_dict)
 
-if args.record:
+RECORD = False
+env = gym.make("CarRacing-v2", render_mode='rgb_array' if RECORD else 'human')
+if RECORD:
     recorder = VideoRecorder(env, 'video.mp4')
 obs, info = env.reset()
 
@@ -48,7 +51,7 @@ survived = 0
 for i in count():
     if interrupted:
         break
-    if args.record:
+    if RECORD:
         recorder.capture_frame()
     survived += 1
     if survived < 50:
@@ -74,17 +77,13 @@ for i in count():
     if state.mean() < 0.01:
         terminated = True
 
-    if args.record and truncated:
-        break
-
     if terminated or truncated:
-        recorder.recorded_frames = []
         obs, info = env.reset()
         survived = 0
 
 
 env.close()
 
-if args.record:
+if RECORD:
     recorder.close()
 

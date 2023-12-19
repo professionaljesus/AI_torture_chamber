@@ -1,4 +1,5 @@
 import gymnasium as gym
+import argparse
 import numpy as np
 import matplotlib.pyplot as plt
 from itertools import count
@@ -10,7 +11,7 @@ from neural_net import NeuralNetwork, torch, nn
 
 from collections import namedtuple, deque
 
-CONTINUE = False
+CONTINUE = True
 
 interrupted = False
 def signal_handler(signal, frame):
@@ -99,7 +100,7 @@ if PLOT:
 
 EPSILON = 0.9
 
-stats = deque([0]*50,maxlen=50)
+stats = deque([0]*10,maxlen=50)
 avg_survival_time = 0
 survived = 0
 n_steps = 10000
@@ -129,9 +130,6 @@ for i in range(n_steps):
 
     obs, reward, terminated, truncated, info = env.step(action)
 
-    if survived < avg_survival_time:
-        continue
-
     image = cv2.cvtColor(obs[:83,:,:], cv2.COLOR_BGR2HSV)
     state = torch.from_numpy(cv2.inRange(image, lower, upper)).unsqueeze(0).to(device, torch.float32)
     
@@ -155,12 +153,14 @@ for i in range(n_steps):
         road_reward = -1
 
 
-    memories.append(Memory(old_state, turn_id, state, road_reward, old_old_state))
-    memories.append(Memory(old_state[0].fliplr().unsqueeze(0), (n_outputs - 1) - turn_id, state[0].fliplr().unsqueeze(0), road_reward, old_old_state[0].fliplr().unsqueeze(0)))
+    if survived >= avg_survival_time:
+        memories.append(Memory(old_state, turn_id, state, road_reward, old_old_state))
+        memories.append(Memory(old_state[0].fliplr().unsqueeze(0), (n_outputs - 1) - turn_id, state[0].fliplr().unsqueeze(0), road_reward, old_old_state[0].fliplr().unsqueeze(0)))
+        loss = optimize_model()
+
     old_old_state = old_state
     old_state = state
 
-    loss = optimize_model()
     print('{:.2f}%\t survived: {}\t survived_avg: {:.2f}\t road_reward {:.4f}\t reward: {:.4f}\t loss: {}'\
           .format(100*eps,survived, avg_survival_time,road_reward, reward, loss))
 
