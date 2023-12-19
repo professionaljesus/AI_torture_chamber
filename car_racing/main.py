@@ -1,5 +1,4 @@
 import gymnasium as gym
-from gymnasium.utils.play import PlayableGame, play
 import numpy as np
 import matplotlib.pyplot as plt
 from itertools import count
@@ -46,7 +45,6 @@ target_net = NeuralNetwork(image_shape, n_outputs).to(device)
 target_net.load_state_dict(model.state_dict())
 
 gamma = 0.99
-EPSILON = 0.7
 TAU = 0.005
 batch_size = 128
 learning_rate = 0.001
@@ -93,11 +91,17 @@ old_state = torch.from_numpy(cv2.inRange(image, lower, upper)).unsqueeze(0).to(d
 fwd_road = old_state[0, 50:66, 40:56]
 car_road = old_state[0, 66:76, 40:56]
 
-f, ax = plt.subplots(1,3)
-im = [ax[0].imshow(old_state[0]), ax[1].imshow(old_state[0]), ax[2].imshow(image)]
 
+PLOT = False
+if PLOT:
+    f, ax = plt.subplots(1,3)
+    im = [ax[0].imshow(old_state[0]), ax[1].imshow(old_state[0]), ax[2].imshow(image)]
+
+EPSILON = 0.9
+
+stats = deque([0]*50,maxlen=50)
+avg_survival_time = 0
 survived = 0
-
 n_steps = 10000
 for i in range(n_steps):
     survived += 1
@@ -108,8 +112,11 @@ for i in range(n_steps):
         env.step([0,0,0])
         continue
     action = [0,0.1,0]
+
     eps = EPSILON * (1.0 - i/n_steps)
-    turn_id = 0
+    if survived < avg_survival_time:
+        eps = 0
+
     if random.random() < eps:
         turn_id = random.randint(0, len(turning_bins) - 1)
     else:
@@ -121,6 +128,10 @@ for i in range(n_steps):
     action[0] = turning_bins[turn_id]
 
     obs, reward, terminated, truncated, info = env.step(action)
+
+    if survived < avg_survival_time:
+        continue
+
     image = cv2.cvtColor(obs[:83,:,:], cv2.COLOR_BGR2HSV)
     state = torch.from_numpy(cv2.inRange(image, lower, upper)).unsqueeze(0).to(device, torch.float32)
     
@@ -130,7 +141,7 @@ for i in range(n_steps):
     road_reward = fwd_road.mean() / 255.0  - abs(turn_id - n_outputs//2) * 0.05
     #road_reward = (fwd_road.mean() - (181 - car_road.mean()) * (255.0 / 181.5)) / 255.0
 
-    if False:
+    if PLOT:
         print(road_reward)
         im[0].set_data(state[0])
         im[1].set_data(state[0].fliplr())
@@ -150,11 +161,13 @@ for i in range(n_steps):
     old_state = state
 
     loss = optimize_model()
-    print('{:.2f}%\t survived: {}\t road_reward {:.4f}\t reward: {:.4f}\t loss: {}'\
-          .format(100*eps,survived,road_reward, reward, loss))
+    print('{:.2f}%\t survived: {}\t survived_avg: {:.2f}\t road_reward {:.4f}\t reward: {:.4f}\t loss: {}'\
+          .format(100*eps,survived, avg_survival_time,road_reward, reward, loss))
 
     if terminated or truncated:
         obs, info = env.reset()
+        stats.append(survived)
+        avg_survival_time = np.mean(stats)
         survived = 0
 
     if i % 1000 == 0:
