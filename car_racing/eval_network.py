@@ -4,10 +4,9 @@ import numpy as np
 import os
 import cv2
 import argparse
-from itertools import count
 from gymnasium.wrappers.monitoring.video_recorder import VideoRecorder
+from gymnasium.wrappers.transform_observation import TransformObservation
 from neural_net import torch, NeuralNetwork
-from itertools import count
 
 parser = argparse.ArgumentParser('record')
 args = parser.parse_args()
@@ -18,8 +17,6 @@ def signal_handler(signal, frame):
     interrupted = True
 
 signal.signal(signal.SIGINT, signal_handler)
-
-
 
 device = (
     "cuda"
@@ -40,15 +37,24 @@ RECORD = False
 env = gym.make("CarRacing-v2", render_mode='rgb_array' if RECORD else 'human')
 if RECORD:
     recorder = VideoRecorder(env, 'video.mp4')
-obs, info = env.reset()
+
+env = TransformObservation(env, lambda obs: cv2.cvtColor(obs[:83,:,:], cv2.COLOR_BGR2HSV))
+obs, info = env.reset(seed=42)
+steps_to_start = 50
 
 lower = np.array([0, 0, 100], dtype="uint8")
 upper = np.array([0, 0, 110], dtype="uint8")
-image = cv2.cvtColor(obs[:83,:,:], cv2.COLOR_BGR2HSV)
-old_state = torch.from_numpy(cv2.inRange(image, lower, upper)).unsqueeze(0).to(torch.float32)
-old_old_state = torch.from_numpy(cv2.inRange(image, lower, upper)).unsqueeze(0).to(torch.float32)
+
+norm_image = cv2.normalize(cv2.inRange(obs, lower, upper), None, 0, 1.0, cv2.NORM_MINMAX, dtype=cv2.CV_32F)
+state = torch.from_numpy(norm_image).unsqueeze(0).to(device, torch.float32)
+old_state = state.clone()
+old_old_state = state.clone()
+fwd_road = old_state[0, 50:66, 40:56]
+
 survived = 0
-for i in count():
+n_steps = 20000
+for i in range(n_steps):
+    survived += 1
     if interrupted:
         break
     if RECORD:
@@ -57,33 +63,35 @@ for i in count():
     if survived < 50:
         env.step([0,0,0])
         continue
-    acc = 0.07
-    action = [0, acc ,0]
-    turn_id = 0
+
+    action = [0,0.1,0]
     with torch.no_grad():
-        X = torch.vstack([old_old_state, old_state]).unsqueeze(0)
+        X = torch.vstack([old_old_state,old_state]).unsqueeze(0)
         logits = model(X)
         turn_id = logits.argmax().item()
 
-    print(survived ,turn_id, logits)
     action[0] = turning_bins[turn_id]
-    obs, reward, terminated, truncated, info = env.step(action)
 
-    image = cv2.cvtColor(obs[:83,:,:], cv2.COLOR_BGR2HSV)
-    state = torch.from_numpy(cv2.inRange(image, lower, upper)).unsqueeze(0).to(torch.float32)
+    obs, reward, terminated, truncated, info = env.step(action)
+    norm_image = cv2.normalize(cv2.inRange(obs, lower, upper), None, 0, 1.0, cv2.NORM_MINMAX, dtype=cv2.CV_32F)
+    state = torch.from_numpy(norm_image).unsqueeze(0).to(device, torch.float32)
+    fwd_road = state[0, 50:66, 40:56]
+
+    if state[0, 66:76, 40:56].mean() == 0:
+        print('----- Off Road -----')
+        terminated = True
 
     old_old_state = old_state
     old_state = state
-    if state.mean() < 0.01:
-        terminated = True
 
+    print('survived: {}\t road_reward {:.4f}\t'\
+          .format(survived, reward))
     if terminated or truncated:
         obs, info = env.reset()
         survived = 0
 
-
-env.close()
-
 if RECORD:
     recorder.close()
+
+env.close()
 

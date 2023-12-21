@@ -1,17 +1,28 @@
 import gymnasium as gym
+from gymnasium.wrappers.transform_observation import TransformObservation
 import argparse
 import numpy as np
 import matplotlib.pyplot as plt
 from itertools import count
 import cv2
+import os
 import random
 import signal
-import os
 from neural_net import NeuralNetwork, torch, nn
-
 from collections import namedtuple, deque
+import argparse
 
-CONTINUE = True
+parser = argparse.ArgumentParser()
+parser.add_argument("-e", "--epsilon", type=float, default=0.9)
+parser.add_argument("-s", "--save", action="store_true")
+parser.add_argument("-c", "--cont", action="store_true")
+args = parser.parse_args()
+
+CONTINUE = args.cont
+SAVE = args.save
+work_dir = os.path.dirname(__file__)
+
+print("eps: {}, cont {}, save {}".format(args.epsilon, args.cont, args.save))
 
 interrupted = False
 def signal_handler(signal, frame):
@@ -81,14 +92,19 @@ def optimize_model():
 
 
 env = gym.make("CarRacing-v2")#, render_mode="human")
+
+env = TransformObservation(env, lambda obs: cv2.cvtColor(obs[:83,:,:], cv2.COLOR_BGR2HSV))
 obs, info = env.reset(seed=42)
 steps_to_start = 50
 
 lower = np.array([0, 0, 100], dtype="uint8")
 upper = np.array([0, 0, 110], dtype="uint8")
-image = cv2.cvtColor(obs[:83,:,:], cv2.COLOR_BGR2HSV)
-old_old_state = torch.from_numpy(cv2.inRange(image, lower, upper)).unsqueeze(0).to(device, torch.float32)
-old_state = torch.from_numpy(cv2.inRange(image, lower, upper)).unsqueeze(0).to(device, torch.float32)
+
+norm_image = cv2.normalize(cv2.inRange(obs, lower, upper), None, 0, 1.0, cv2.NORM_MINMAX, dtype=cv2.CV_32F)
+state = torch.from_numpy(norm_image).unsqueeze(0).to(device, torch.float32)
+old_state = state.clone()
+old_old_state = state.clone()
+
 fwd_road = old_state[0, 50:66, 40:56]
 car_road = old_state[0, 66:76, 40:56]
 
@@ -96,14 +112,14 @@ car_road = old_state[0, 66:76, 40:56]
 PLOT = False
 if PLOT:
     f, ax = plt.subplots(1,3)
-    im = [ax[0].imshow(old_state[0]), ax[1].imshow(old_state[0]), ax[2].imshow(image)]
+    im = [ax[0].imshow(old_state[0]), ax[1].imshow(fwd_road), ax[2].imshow(norm_image)]
 
-EPSILON = 0.9
+EPSILON = args.epsilon
 
 stats = deque([0]*10,maxlen=50)
 avg_survival_time = 0
 survived = 0
-n_steps = 10000
+n_steps = 20000
 for i in range(n_steps):
     survived += 1
     if interrupted:
@@ -115,7 +131,7 @@ for i in range(n_steps):
     action = [0,0.1,0]
 
     eps = EPSILON * (1.0 - i/n_steps)
-    if survived < avg_survival_time:
+    if survived < avg_survival_time/2:
         eps = 0
 
     if random.random() < eps:
@@ -129,31 +145,30 @@ for i in range(n_steps):
     action[0] = turning_bins[turn_id]
 
     obs, reward, terminated, truncated, info = env.step(action)
-
-    image = cv2.cvtColor(obs[:83,:,:], cv2.COLOR_BGR2HSV)
-    state = torch.from_numpy(cv2.inRange(image, lower, upper)).unsqueeze(0).to(device, torch.float32)
+    norm_image = cv2.normalize(cv2.inRange(obs, lower, upper), None, 0, 1.0, cv2.NORM_MINMAX, dtype=cv2.CV_32F)
+    state = torch.from_numpy(norm_image).unsqueeze(0).to(device, torch.float32)
     
     fwd_road = state[0, 50:66, 40:56]
     car_road = state[0, 66:76, 40:56]
 
-    road_reward = fwd_road.mean() / 255.0  - abs(turn_id - n_outputs//2) * 0.05
+    road_reward = fwd_road.mean() - abs(turn_id - n_outputs//2) * 0.05
     #road_reward = (fwd_road.mean() - (181 - car_road.mean()) * (255.0 / 181.5)) / 255.0
 
     if PLOT:
         print(road_reward)
         im[0].set_data(state[0])
-        im[1].set_data(state[0].fliplr())
-        im[2].set_data(image)
+        im[1].set_data(fwd_road)
+        im[2].set_data(norm_image)
         plt.show(block=False)
         plt.waitforbuttonpress()
 
-    if state[0, 66:76, 40:56].mean() < 1:
+    if state[0, 66:76, 40:56].mean() == 0:
         print('----- Off Road -----')
         terminated = True
         road_reward = -1
 
 
-    if survived >= avg_survival_time:
+    if survived >= avg_survival_time/2:
         memories.append(Memory(old_state, turn_id, state, road_reward, old_old_state))
         memories.append(Memory(old_state[0].fliplr().unsqueeze(0), (n_outputs - 1) - turn_id, state[0].fliplr().unsqueeze(0), road_reward, old_old_state[0].fliplr().unsqueeze(0)))
         loss = optimize_model()
@@ -171,10 +186,13 @@ for i in range(n_steps):
         survived = 0
 
     if i % 1000 == 0:
-        print("----------------- Model Saved -----------------")
-        torch.save(model.state_dict(), os.path.join(os.path.dirname(__file__), 'model.torch_state_dict'))
+        if SAVE:
+            torch.save(model.state_dict(), os.path.join(work_dir, 'model.torch_state_dict'))
+            print("----------------- Model Saved -----------------")
 
-torch.save(model.state_dict(), os.path.join(os.path.dirname(__file__), 'model.torch_state_dict'))
-print("----------------- Model Saved -----------------")
+
+if SAVE:
+    torch.save(model.state_dict(), os.path.join(work_dir, 'model.torch_state_dict'))
+    print("----------------- Model Saved -----------------")
 env.close()
 
