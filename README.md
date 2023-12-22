@@ -11,18 +11,7 @@ This car has been severely tortured into submission. With deep Q learning, binni
 ![](shaky_driver.gif)
 
 
-### discrete action space mountain car
-this dumb little mountain car only capable of 3 actions got his ass whooped until his policy was good enough.
-Actor-critic policy gradient
-
-![](montin_car.gif)
-
-
 ### continous action space mountain car
-This stupid little car got rewards for getting closer to the flag but not enough when taking it so he started teasing me.
-
-![](accident.gif)
-
 His smarter brother got a big reward for getting the flag
 
 ![](fast_montin.gif)
