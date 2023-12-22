@@ -26,3 +26,7 @@ This stupid little car got rewards for getting closer to the flag but not enough
 His smarter brother got a big reward for getting the flag
 
 ![](fast_montin.gif)
+
+### Cont action space penduul
+Good boy pendulum
+![](pendulum.gif)
