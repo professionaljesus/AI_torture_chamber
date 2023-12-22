@@ -1,6 +1,5 @@
 # OpenAI gymnasium agents punished til obedient
-## All stick and no carrot
-
+All stick and no carrot make robots good boys
 
 ## Classic Control
 ### cart_pole
@@ -8,15 +7,15 @@ Pretty successful cart pole balancing network using (deep?) Q-learning that mana
 ![](scared_cart.gif)
 
 ### continous action space mountain car
-His smarter brother got a big reward for getting the flag
+Faster you get up that hill less I can punish you lil car
 
 ![](fast_montin.gif)
 
-### Cont action space pendulum
-Good boy pendulum
+### Continous action space pendulum
+Any angle > 90 deg put this pendulum in excruciating pain, he got out of there fast
 ![](pendulum.gif)
 
-### Acroboat
+### Acroboat, discrete action space
 acrobat robot swingy swung all the way up
 
 ![](acrobot.gif)
