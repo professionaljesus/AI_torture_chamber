@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
-from torch.distributions import Normal
+from torch.distributions import Normal, Categorical
 
 class ActorCritic(nn.Module):
     def __init__(self, n_inputs, n_outputs, hidden_size, std=0.0):
@@ -18,13 +18,11 @@ class ActorCritic(nn.Module):
             nn.Linear(n_inputs, hidden_size),
             nn.ReLU(),
             nn.Linear(hidden_size, n_outputs),
+            nn.Softmax(dim=1),
         )
-        self.log_std = nn.Parameter(torch.ones(1, n_outputs) * std)
-
 
     def forward(self, x):
         value = self.critic(x)
-        mu    = self.actor(x)
-        std   = self.log_std.exp().expand_as(mu)
-        dist  = Normal(mu, std)
+        probs = self.actor(x)
+        dist  = Categorical(probs=probs)
         return dist, value

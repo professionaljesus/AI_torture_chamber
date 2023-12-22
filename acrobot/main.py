@@ -31,8 +31,8 @@ except:
 
 work_dir = os.path.dirname(__file__)
 
-env = gym.make('Pendulum-v1', render_mode="rgb_array")
-env = TransformObservation(env, lambda obs: [obs[0], obs[1], obs[2] / 8.0] )
+env = gym.make('Acrobot-v1', render_mode="rgb_array")
+env = TransformObservation(env, lambda obs: [obs[0], obs[1], obs[2], obs[3], obs[4] / 12.566371, obs[5] / 28.274334] )
 
 if args.display:
     env = HumanRendering(env)
@@ -40,7 +40,7 @@ elif args.record:
     recorder = VideoRecorder(env, os.path.join(work_dir, 'video.mp4'))
 
 n_inputs = env.observation_space.shape[0]
-n_outputs = env.action_space.shape[0]
+n_outputs = env.action_space.n
 
 device = (
     "cuda"
@@ -64,7 +64,7 @@ optimizer = torch.optim.AdamW(model.parameters(), lr=0.001, amsgrad=True)
 obs, info = env.reset()
 n_steps = 10000
 gamma = 0.99
-n_trajectory_steps = 48
+n_trajectory_steps = 16
 
 stats = deque([0],maxlen=100)
 
@@ -77,38 +77,31 @@ for i in range(n_steps):
     mask = []
     entropy = 0
 
-    times_at_top = 0
-    home_truncated = False
     for j in range(n_trajectory_steps):
         state = torch.FloatTensor(obs).unsqueeze(0).to(device)
         dist, value = model(state)
-        if i < 5:
-            action = torch.FloatTensor([-obs[2]*2])
-        else:
-            action = dist.sample()
+        action = dist.sample()
+
+        if args.record:
+            recorder.capture_frame()
+
+        obs, reward, terminated, truncated, info = env.step(action.item())
+
+        #reward = -obs[0] - (obs[0]*obs[2] - obs[1]*obs[3])
+        #reward /= 2
+
+        if truncated or terminated:
+            obs, info = env.reset()
             if args.record:
-                recorder.capture_frame()
-
-        obs, reward, terminated, truncated, info = env.step(action.numpy().reshape((1,)))
-
-        reward /= 16.2736044
-
-        if obs[0] > 0.97:
-            times_at_top += 1
-
-        if times_at_top >= n_trajectory_steps:
-            print('-------------kill--------------') 
-            #obs, info = env.reset()
-            home_truncated = True
-
-        if home_truncated:
-            if args.record and i > 5:
-                interrupted = True
-                break
+                if terminated:
+                    interrupted = True
+                    break
+                if truncated:
+                    recorder.recorded_frames = []
 
         if args.display:
-            fmt = [dist.loc.item(), dist.scale.item(), action[0].item(), *obs, reward]
-            print(("[{:.2f},{:.2f}] -> {:+.2f}\t x: [" + "{:+.2f}," * len(obs) + "] \t r: {:.2f}").format(*fmt))
+            fmt = [*dist.probs[0].tolist(), action.item(), *obs, reward]
+            print(("[{:.2f},{:.2f},{:.2f}] -> {:+.2f}\t x: [" + "{:+.2f}," * len(obs) + "] \t r: {:.2f}").format(*fmt))
 
         log_prob = dist.log_prob(action)
         entropy += dist.entropy().mean()
@@ -116,9 +109,8 @@ for i in range(n_steps):
         log_probs.append(log_prob)
         values.append(value)
         rewards.append(reward)
-        mask.append(not home_truncated)
+        mask.append(not terminated)
 
-    stats.append(times_at_top)
     if args.record:
         continue
 
@@ -139,18 +131,16 @@ for i in range(n_steps):
 
     loss = actor_loss + 0.5 * critic_loss - 0.001 * entropy
 
-    if loss > 1e15:
-        breakpoint()
-
     optimizer.zero_grad()
     loss.backward()
 
     nn.utils.clip_grad_value_(model.parameters(), 100)
     optimizer.step()
-    
 
-    fmt = [100*i/n_steps, max(rewards),  max(stats), sum(stats)/len(stats), loss]
-    print('{:.2f}%,\t max: {:.2f} \t max_ttt {} \t avg_ttt {:.2f},\t loss: {}'.format(*fmt))
+    fmt = [100*i/n_steps, max(rewards),  max(stats), sum(rewards)/len(rewards), loss]
+    print(('{:.2f}%,\t max: {:+.2f} \t max_ttt {} \t avg_ttt {:.2f},\t loss: {}').format(*fmt))
+    if terminated:
+        print('term-------------------')
 
 if args.save:
     torch.save(model.state_dict(), os.path.join(work_dir, 'model.torch_state_dict'))
