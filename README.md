@@ -2,6 +2,7 @@
 All stick and no carrot make robots good boys
 
 ## Classic Control
+
 ### cart_pole
 Pretty successful cart pole balancing network using (deep?) Q-learning that managed to produced a scared little cart thats been punished too much for falling over
 ![](scared_cart.gif)
@@ -19,7 +20,6 @@ Any angle > 90 deg put this pendulum in excruciating pain, he got out of there f
 acrobat robot swingy swung all the way up
 
 ![](acrobot.gif)
-
 
 ## Box2D
 
