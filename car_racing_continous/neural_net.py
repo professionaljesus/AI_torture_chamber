@@ -22,17 +22,16 @@ class ActorCriticCNN(nn.Module):
 
     def forward(self, x):
         x_copy = x.detach().clone()
-        x = F.max_pool2d(F.relu(self.crit_conv1(x)), 2, 2)
-        x = F.max_pool2d(F.relu(self.crit_conv2(x)), 2, 2)
+        x = F.max_pool2d(F.leaky_relu(self.crit_conv1(x)), 2, 2)
+        x = F.max_pool2d(F.leaky_relu(self.crit_conv2(x)), 2, 2)
         x = torch.flatten(x, 1)
-        value = F.relu(self.crit_fc1(x))
+        value = F.leaky_relu(self.crit_fc1(x))
 
-        x = F.max_pool2d(F.relu(self.act_conv1(x_copy)), 2, 2)
-        x = F.max_pool2d(F.relu(self.act_conv2(x)), 2, 2)
+        x = F.max_pool2d(F.leaky_relu(self.act_conv1(x_copy)), 2, 2)
+        x = F.max_pool2d(F.leaky_relu(self.act_conv2(x)), 2, 2)
         x = torch.flatten(x, 1)
-        mu = F.tanh(self.act_fc1(x))
-
+        mu = F.leaky_relu(self.act_fc1(x))
 
         std   = self.log_std.exp().expand_as(mu)
-        dist  = TruncatedNormal(mu, std)
+        dist  = Normal(mu, std)
         return dist, value

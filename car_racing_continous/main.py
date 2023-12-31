@@ -5,13 +5,13 @@ import argparse
 import cv2
 import numpy as np
 import gymnasium as gym
+import random
 import matplotlib.pyplot as plt
 from gymnasium.wrappers.human_rendering import HumanRendering
 from gymnasium.wrappers.monitoring.video_recorder import VideoRecorder
 from gymnasium.wrappers.transform_observation import TransformObservation
-from neural_net import ActorCriticCNN, nn
-from collections import deque
-
+from neural_net import ActorCriticCNN, nn, F
+from collections import deque, namedtuple
 
 interrupted = False
 def signal_handler(signal, frame):
@@ -71,24 +71,72 @@ if args.cont:
 
 optimizer = torch.optim.AdamW(model.parameters(), lr=0.001, amsgrad=True)
 
+Memory = namedtuple('Memory', ('states', 'actions', 'log_probs', 'advantages', 'Qs'))
+trajectory_memories = deque(maxlen=100)
+
+clip_e = 0.1
+def ppo_optim():
+    tot_loss = 0
+    if len(trajectory_memories) < 5:
+        return 0
+    batch = random.sample(trajectory_memories, 5)
+
+    for trajectory in batch:
+        states = trajectory.states
+        actions = trajectory.actions
+        returns = trajectory.Qs
+        old_log_probs = trajectory.log_probs
+        old_advantages = trajectory.advantages
+        idx = np.random.randint(0, len(old_log_probs), 8) 
+
+        iterab = [(states[i], actions[i], returns[i], old_log_probs[i], old_advantages[i]) for i in idx]
+
+        for state, action, ret, old_log_prob, old_adv in iterab:
+            dist, value = model(state)
+            entropy = dist.entropy().mean()
+            log_prob = dist.log_prob(action)
+
+            ratio = (log_prob - old_log_prob).exp()
+            unclipped = ratio * old_adv
+            clipped = torch.clamp(ratio, 1.0 - clip_e, 1.0 + clip_e)*old_adv
+
+            actor_loss = -torch.min(unclipped, clipped).mean()
+            critic_loss = (ret - value).pow(2).mean()
+
+            loss = actor_loss + 0.5 * critic_loss - 0.001 * entropy
+
+            tot_loss += loss
+
+            optimizer.zero_grad()
+            loss.backward()
+
+            nn.utils.clip_grad_value_(model.parameters(), 100)
+            optimizer.step()
+
+    return tot_loss
+
 obs, info = env.reset()
 n_steps = 10000
 gamma = 0.99
-n_trajectory_steps = 48
+n_trajectory_steps = 45
 
 steps_to_start = 50
 survived = 0
 stats = deque([0],maxlen=100)
 
+total_reward = 0
 
 prev_state = torch.FloatTensor(obs).to(device)
 for i in range(n_steps):
     if interrupted:
         break
+
+    states = []
     log_probs = []
     values = []
     rewards = []
     mask = []
+    actions = []
     entropy = 0
 
     for j in range(n_trajectory_steps):
@@ -99,27 +147,33 @@ for i in range(n_steps):
             recorder.capture_frame()
 
         state = torch.FloatTensor(obs).to(device)
-        dist, value = model(torch.stack([prev_state,state], 1))
+        model_input = torch.stack([prev_state,state], 1)
+        dist, value = model(model_input)
+        states.append(model_input)
         prev_state = state
         action = dist.sample()
+        actions.append(action)
 
-        env_action = [action[0][0].item(), max(action[0][1].item(), 0), -min(action[0][1].item(), 0)]
+        env_action = F.tanh(action)[0]
+        env_action = [env_action[0].item(), max(env_action[1].item(), 0), -min(env_action[1].item(), 0)]
 
         if survived < steps_to_start:
             env_action = [0,0,0]
 
         obs, reward, terminated, truncated, info = env.step(env_action)
         survived += 1
+        total_reward += reward
 
         if survived < steps_to_start:
             continue
 
-        if state[0, 30:, 16:25].mean() == 0:
+        if state[0, 30:, 16:25].sum() == 0:
             terminated = True
 
-        if terminated or truncated:
+        if terminated:
             obs, info = env.reset()
-            stats.append(survived)
+            stats.append(total_reward)
+            total_reward = 0
             survived = 0
             if terminated and args.record:
                 interrupted = True
@@ -141,8 +195,16 @@ for i in range(n_steps):
     if args.record:
         continue
 
+    if not len(values):
+        continue
+
+    values = torch.vstack(values).detach()
+    log_probs = torch.vstack(log_probs).detach()
+
     next_state = torch.FloatTensor(obs).to(device)
-    _, next_value = model(torch.stack([state, next_state], 1))
+    model_input = torch.stack([state, next_state], 1)
+
+    _, next_value = model(model_input)
 
     Q = []
     q = next_value.item()
@@ -150,26 +212,15 @@ for i in range(n_steps):
         q = rewards[j] + gamma  * q if mask[j] else 0
         Q.insert(0, q)
 
-    if not len(values):
-        continue
+    Q = torch.FloatTensor(Q).unsqueeze(1).detach().to(device).detach()
+    advantage = Q - values
 
-    values = torch.vstack(values)
-    advantage = torch.FloatTensor(Q).unsqueeze(1).detach().to(device) - values
-    log_probs = torch.vstack(log_probs)
-    print(log_probs * advantage.detach())
-    actor_loss = -(log_probs * advantage.detach()).mean()
-    critic_loss = advantage.pow(2).mean()
+    trajectory_memories.append(Memory(states, actions, log_probs, advantage, Q))
 
-    loss = actor_loss + 0.5 * critic_loss - 0.001 * entropy
-
-    optimizer.zero_grad()
-    loss.backward()
-
-    nn.utils.clip_grad_value_(model.parameters(), 100)
-    optimizer.step()
+    loss = ppo_optim()
 
     fmt = [100*i/n_steps, max(rewards),  max(stats), sum(stats)/len(stats), loss]
-    print('{:.2f}%,\t max: {:.2f} \t max_ttt {} \t avg_ttt {:.2f},\t loss: {}'.format(*fmt))
+    print('{:.2f}%,\t max: {:.2f} \t max_tr {} \t avg_tr {:.2f} \t loss {:.5f}'.format(*fmt))
 
 if args.save:
     torch.save(model.state_dict(), os.path.join(work_dir, 'model.torch_state_dict'))
