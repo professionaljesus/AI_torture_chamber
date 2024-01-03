@@ -3,7 +3,6 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 from torch.distributions import Normal
-from torchrl.modules.distributions import TruncatedNormal
 
 class ActorCriticCNN(nn.Module):
     def __init__(self, n_outputs, std=0.0):
