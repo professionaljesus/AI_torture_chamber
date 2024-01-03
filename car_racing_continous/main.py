@@ -66,7 +66,7 @@ model = ActorCriticCNN(n_outputs).to(device)
 if args.cont:
     path = os.path.join(work_dir,'model.torch_state_dict')
     if os.path.exists(path):
-        model_state_dict = torch.load(path)
+        model_state_dict = torch.load(path, map_location=torch.device(device))
         model.load_state_dict(model_state_dict)
 
 optimizer = torch.optim.AdamW(model.parameters(), lr=0.001, amsgrad=True)
