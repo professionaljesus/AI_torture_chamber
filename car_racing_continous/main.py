@@ -72,7 +72,7 @@ if args.cont:
 optimizer = torch.optim.AdamW(model.parameters(), lr=0.001, amsgrad=True)
 
 Memory = namedtuple('Memory', ('states', 'actions', 'log_probs', 'advantages', 'Qs'))
-trajectory_memories = deque(maxlen=100)
+trajectory_memories = deque(maxlen=10)
 
 clip_e = 0.1
 def ppo_optim():
@@ -87,7 +87,7 @@ def ppo_optim():
         returns = trajectory.Qs
         old_log_probs = trajectory.log_probs
         old_advantages = trajectory.advantages
-        idx = np.random.randint(0, len(old_log_probs), 8) 
+        idx = np.random.choice(range(len(old_log_probs)), 25, replace=False)
 
         iterab = [(states[i], actions[i], returns[i], old_log_probs[i], old_advantages[i]) for i in idx]
 
