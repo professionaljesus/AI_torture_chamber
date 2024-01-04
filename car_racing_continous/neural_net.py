@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
-from torch.distributions import Normal
+from torch.distributions import MultivariateNormal
 
 class ActorCriticCNN(nn.Module):
     def __init__(self, n_outputs, std=0.0):
@@ -16,7 +16,7 @@ class ActorCriticCNN(nn.Module):
         self.act_conv2 = nn.Conv2d(16, 8, 5)
         self.act_fc1 = nn.Linear(392, n_outputs)
 
-        self.log_std = nn.Parameter(torch.ones(1, n_outputs) * std)
+        self.log_std = nn.Parameter(torch.ones(n_outputs) * std)
 
 
     def forward(self, x):
@@ -31,6 +31,6 @@ class ActorCriticCNN(nn.Module):
         x = torch.flatten(x, 1)
         mu = F.leaky_relu(self.act_fc1(x))
 
-        std   = self.log_std.exp().expand_as(mu)
-        dist  = Normal(mu, std)
+        std   = self.log_std.exp().diag()
+        dist  = MultivariateNormal(mu, std)
         return dist, value

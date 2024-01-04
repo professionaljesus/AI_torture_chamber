@@ -87,7 +87,7 @@ def ppo_optim():
         returns = trajectory.Qs
         old_log_probs = trajectory.log_probs
         old_advantages = trajectory.advantages
-        idx = np.random.choice(range(len(old_log_probs)), 25, replace=False)
+        idx = np.random.choice(range(len(old_log_probs)), min(25, len(old_log_probs)), replace=False)
 
         iterab = [(states[i], actions[i], returns[i], old_log_probs[i], old_advantages[i]) for i in idx]
 
@@ -212,7 +212,7 @@ for i in range(n_steps):
         q = rewards[j] + gamma  * q if mask[j] else 0
         Q.insert(0, q)
 
-    Q = torch.FloatTensor(Q).unsqueeze(1).detach().to(device).detach()
+    Q = torch.FloatTensor(Q).unsqueeze(1).detach().to(device)
     advantage = Q - values
 
     trajectory_memories.append(Memory(states, actions, log_probs, advantage, Q))
