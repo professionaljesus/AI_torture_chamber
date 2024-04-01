@@ -128,7 +128,7 @@ for i in range(n_steps):
     if survived < steps_to_start:
         env.step([0,0,0])
         continue
-    action = [0,0.1,0]
+    action = [0,0.05,0]
 
     eps = EPSILON * (1.0 - i/n_steps)
     if survived < avg_survival_time/2:
@@ -147,7 +147,6 @@ for i in range(n_steps):
     obs, reward, terminated, truncated, info = env.step(action)
     norm_image = cv2.normalize(cv2.inRange(obs, lower, upper), None, 0, 1.0, cv2.NORM_MINMAX, dtype=cv2.CV_32F)
     state = torch.from_numpy(norm_image).unsqueeze(0).to(device, torch.float32)
-    
     fwd_road = state[0, 50:66, 40:56]
     car_road = state[0, 66:76, 40:56]
 

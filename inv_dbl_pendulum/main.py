@@ -10,13 +10,18 @@ import matplotlib.pyplot as plt
 from gymnasium.wrappers.human_rendering import HumanRendering
 from gymnasium.wrappers.monitoring.video_recorder import VideoRecorder
 from gymnasium.wrappers.transform_observation import TransformObservation
-from neural_net import ActorCriticCNN, nn, F
+from neural_net import ActorCritic, nn, F
 from collections import deque, namedtuple
 
 interrupted = False
 def signal_handler(signal, frame):
     global interrupted
     interrupted = True
+
+def receive(signum, stack):
+    print("Received",signum)
+
+signal.signal(signal.SIGUSR1, receive)
 
 signal.signal(signal.SIGINT, signal_handler)
 
@@ -33,24 +38,15 @@ except:
 
 work_dir = os.path.dirname(__file__)
 
-def trans_obs(obs):
-    obs = cv2.cvtColor(obs[0:82, 7:89, :], cv2.COLOR_BGR2HSV)
-    lower = np.array([0, 0, 100], dtype="uint8")
-    upper = np.array([0, 0, 110], dtype="uint8")
-    obs = cv2.resize(obs, (0, 0), fx = 0.5, fy = 0.5)
-    obs = cv2.normalize(cv2.inRange(obs, lower, upper), None, 0, 1.0, cv2.NORM_MINMAX, dtype=cv2.CV_32F)
-    return obs[np.newaxis, ...]
-
-env = gym.make('CarRacing-v2', render_mode="rgb_array")
-env = TransformObservation(env, trans_obs)
-
+env = gym.make('Pendulum-v1', render_mode="rgb_array")
 
 if args.display:
     env = HumanRendering(env)
 elif args.record:
     recorder = VideoRecorder(env, os.path.join(work_dir, 'video.mp4'))
 
-n_outputs = env.action_space.shape[0] - 1
+n_inputs = env.observation_space.shape[0]
+n_outputs = env.action_space.shape[0]
 
 device = (
     "cuda"
@@ -61,7 +57,7 @@ device = (
 )
 print(f"Using {device} device")
 
-model = ActorCriticCNN(n_outputs).to(device)
+model = ActorCritic(n_inputs, n_outputs, 64).to(device)
 
 if args.cont:
     path = os.path.join(work_dir,'model.torch_state_dict')
@@ -71,59 +67,47 @@ if args.cont:
 
 optimizer = torch.optim.AdamW(model.parameters(), lr=0.001, amsgrad=True)
 
-Memory = namedtuple('Memory', ('states', 'actions', 'log_probs', 'advantages', 'Qs'))
-trajectory_memories = deque(maxlen=10)
-
 clip_e = 0.1
-def ppo_optim(trajectory):
+def ppo_optim(states, actions, returns, old_log_probs, old_advantages):
+
     tot_loss = 0
+    idx = np.random.choice(range(len(old_log_probs)), min(25, len(old_log_probs)), replace=False)
 
-    if True:
-        states = trajectory.states
-        actions = trajectory.actions
-        returns = trajectory.Qs
-        old_log_probs = trajectory.log_probs
-        old_advantages = trajectory.advantages
-        idx = np.random.choice(range(len(old_log_probs)), min(25, len(old_log_probs)), replace=False)
+    iterab = [(states[i], actions[i], returns[i], old_log_probs[i], old_advantages[i]) for i in idx]
 
-        iterab = [(states[i], actions[i], returns[i], old_log_probs[i], old_advantages[i]) for i in idx]
+    for state, action, ret, old_log_prob, old_adv in iterab:
+        dist, value = model(state)
+        entropy = dist.entropy().mean()
+        log_prob = dist.log_prob(action)
 
-        for state, action, ret, old_log_prob, old_adv in iterab:
-            dist, value = model(state)
-            entropy = dist.entropy().mean()
-            log_prob = dist.log_prob(action)
+        ratio = (log_prob - old_log_prob).exp()
+        unclipped = ratio * old_adv
+        clipped = torch.clamp(ratio, 1.0 - clip_e, 1.0 + clip_e)*old_adv
 
-            ratio = (log_prob - old_log_prob).exp()
-            unclipped = ratio * old_adv
-            clipped = torch.clamp(ratio, 1.0 - clip_e, 1.0 + clip_e)*old_adv
+        actor_loss = -torch.min(unclipped, clipped).mean()
+        critic_loss = (ret - value).pow(2).mean()
 
-            actor_loss = -torch.min(unclipped, clipped).mean()
-            critic_loss = (ret - value).pow(2).mean()
+        loss = actor_loss + 0.5 * critic_loss - 0.001 * entropy
 
-            loss = actor_loss + 0.5 * critic_loss - 0.001 * entropy
+        tot_loss += loss
 
-            tot_loss += loss
+        optimizer.zero_grad()
+        loss.backward()
 
-            optimizer.zero_grad()
-            loss.backward()
-
-            nn.utils.clip_grad_value_(model.parameters(), 100)
-            optimizer.step()
+        nn.utils.clip_grad_value_(model.parameters(), 100)
+        optimizer.step()
 
     return tot_loss
 
 obs, info = env.reset()
 n_steps = 10000
 gamma = 0.95
-n_trajectory_steps = 200
+n_trajectory_steps = 30
 
 steps_to_start = 50
 survived = 0
 stats = deque([0],maxlen=100)
 
-total_reward = 0
-
-prev_state = torch.FloatTensor(obs).to(device)
 for i in range(n_steps):
     if interrupted:
         break
@@ -143,35 +127,18 @@ for i in range(n_steps):
         if args.record:
             recorder.capture_frame()
 
-        state = torch.FloatTensor(obs).to(device)
-        model_input = torch.stack([prev_state,state], 1)
-        dist, value = model(model_input)
-        states.append(model_input)
-        prev_state = state
+        state = torch.FloatTensor(obs).to(device).unsqueeze(0)
+        dist, value = model(state)
+        states.append(state)
         action = dist.sample()
         actions.append(action)
 
-        env_action = F.tanh(action)[0]
-        env_action = [env_action[0].item(), max(env_action[1].item(), 0), -min(env_action[1].item(), 0)]
-
-        if survived < steps_to_start:
-            env_action = [0,0,0]
+        env_action = 2*F.tanh(action)[0].numpy()
 
         obs, reward, terminated, truncated, info = env.step(env_action)
-        survived += 1
-        total_reward += reward
 
-        if survived < steps_to_start:
-            continue
-
-        if state[0, 30:, 16:25].sum() == 0:
-            terminated = True
-
-        if terminated:
+        if terminated or truncated:
             obs, info = env.reset()
-            stats.append(total_reward)
-            total_reward = 0
-            survived = 0
             if terminated and args.record:
                 interrupted = True
                 break
@@ -187,7 +154,7 @@ for i in range(n_steps):
         log_probs.append(log_prob)
         values.append(value)
         rewards.append(reward)
-        mask.append(not terminated)
+        mask.append(not terminated and not truncated)
 
     if args.record:
         continue
@@ -198,10 +165,9 @@ for i in range(n_steps):
     values = torch.vstack(values).detach()
     log_probs = torch.vstack(log_probs).detach()
 
-    next_state = torch.FloatTensor(obs).to(device)
-    model_input = torch.stack([state, next_state], 1)
+    state = torch.FloatTensor(obs).to(device).unsqueeze(0)
 
-    _, next_value = model(model_input)
+    _, next_value = model(state)
 
     Q = []
     q = next_value.item()
@@ -212,9 +178,7 @@ for i in range(n_steps):
     Q = torch.FloatTensor(Q).unsqueeze(1).detach().to(device)
     advantage = Q - values
 
-    trajectory_memories.append(Memory(states, actions, log_probs, advantage, Q))
-
-    loss = ppo_optim(Memory(states, actions, log_probs, advantage, Q))
+    loss = ppo_optim(states, actions, Q, log_probs, advantage)
 
     fmt = [100*i/n_steps, max(rewards),  max(stats), sum(stats)/len(stats), loss]
     print('{:.2f}%,\t max: {:.2f} \t max_tr {} \t avg_tr {:.2f} \t loss {:.5f}'.format(*fmt))
