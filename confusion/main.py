@@ -15,10 +15,17 @@ from torchsummary import summary
 from PIL import Image 
 
 pil_transform = torchvision.transforms.ToPILImage()
-def unpreprocess(img):
+
+def unnormalize(img):
     mean = torch.tensor([0.485, 0.456, 0.406]).reshape(1,3,1,1)
     std = torch.tensor([0.229, 0.224, 0.225]).reshape(1,3,1,1)
-    img = ((img * std + mean) * 255).to(dtype=torch.uint8).squeeze(0)
+    img = img * std + mean
+    return img
+
+def unpreprocess(img):
+    img = unnormalize(img)
+    img = (img * 255).to(dtype=torch.uint8)
+    img = img.squeeze(0)
     img = pil_transform(img)
     return img
 
@@ -36,31 +43,41 @@ model.eval()
 
 goldfish = Image.open(os.path.join(dir, 'goldfish.jpeg'))
 goldfish = preprocess(goldfish).unsqueeze(0)
+
+gf_clone = torch.clone(goldfish)
+
 unpreprocess(goldfish).save(os.path.join(dir, 'gold_goldfish.png'))
 y = model(goldfish)
 smax = F.softmax(y, dim=1)
 
+goldfish.requires_grad = True
+optimizer = torch.optim.Adam([goldfish], lr=0.01)
+
 loss_func = nn.CrossEntropyLoss()
+to_fake = 7
 y_fake = torch.zeros((1,1000))
-y_fake[0,7] = 1
+y_fake[0,to_fake] = 1
 
-while smax[0,7] < 0.95:
-    goldfish.requires_grad = True
-    goldfish.grad = None
+while smax[0,to_fake] < 0.75:
     y = model(goldfish)
-
     smax = F.softmax(y, dim=1)
     top = torch.topk(smax, 5)
     for i, p in zip(top.indices[0], top.values[0]):
         print(class_names[int(i.item())], p.item())
+    print("------------------")
 
+    dist = (goldfish - gf_clone.detach()).norm()
+    optimizer.zero_grad()
     loss = loss_func(y, y_fake)
     loss.backward()
+    optimizer.step()
 
-    goldfish.requires_grad = False
-    goldfish -= goldfish.grad
-    #gf.save(os.path.join(dir, 'gf.jpg'))
 
+print(dist)
+
+
+ugf = unnormalize(goldfish)
+print(f'{ugf.argmax()=} {ugf.min()=}')
 gf = unpreprocess(goldfish)
 gf.save(os.path.join(dir, 'gold_cockfish.png'))
 
