@@ -37,3 +37,17 @@ acrobat robot swingy swung all the way up
 ### car racing
 This car has been severely tortured into submission. With deep Q learning, binning the action space
 ![](shaky_driver.gif)
+
+
+# Other
+
+## Confusion
+
+### simple_attack
+Makes small changes to image to change classification
+
+### Main
+Deep dream, kinda, 
+
+![](confusion/gold_goldfish.png)
+![](confusion/dreamfish.png)
