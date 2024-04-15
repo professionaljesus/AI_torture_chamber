@@ -44,7 +44,6 @@ def trans_obs(obs):
 env = gym.make('CarRacing-v2', render_mode="rgb_array")
 env = TransformObservation(env, trans_obs)
 
-
 if args.display:
     env = HumanRendering(env)
 elif args.record:
@@ -69,7 +68,7 @@ if args.cont:
         model_state_dict = torch.load(path, map_location=torch.device(device))
         model.load_state_dict(model_state_dict)
 
-optimizer = torch.optim.AdamW(model.parameters(), lr=0.001, amsgrad=True)
+optimizer = torch.optim.AdamW(model.parameters(), lr=0.01, amsgrad=True)
 
 Memory = namedtuple('Memory', ('states', 'actions', 'log_probs', 'advantages', 'Qs'))
 trajectory_memories = deque(maxlen=10)
@@ -100,7 +99,7 @@ def ppo_optim(trajectory):
             actor_loss = -torch.min(unclipped, clipped).mean()
             critic_loss = (ret - value).pow(2).mean()
 
-            loss = actor_loss + 0.5 * critic_loss - 0.001 * entropy
+            loss = actor_loss + 0.5 * critic_loss + 0.001 * entropy
 
             tot_loss += loss
 
