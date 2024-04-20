@@ -159,6 +159,7 @@ for i in range(n_steps):
         obs, reward, terminated, truncated, info = env.step(env_action)
         survived += 1
         total_reward += reward
+        reward += env_action[1]
 
         if survived < steps_to_start:
             continue
