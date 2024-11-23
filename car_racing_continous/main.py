@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 from gymnasium.wrappers.human_rendering import HumanRendering
 from gymnasium.wrappers.monitoring.video_recorder import VideoRecorder
 from gymnasium.wrappers.transform_observation import TransformObservation
+from gymnasium.utils.play import play, PlayPlot
 from neural_net import ActorCriticCNN, nn, F
 from collections import deque, namedtuple
 
@@ -25,11 +26,12 @@ parser.add_argument("-d", "--display", action="store_true")
 parser.add_argument("-s", "--save", action="store_true")
 parser.add_argument("-c", "--cont", action="store_true")
 parser.add_argument("-r", "--record", action="store_true")
+parser.add_argument("-p", "--play", action="store_true")
 
 try:
     args = parser.parse_args()
 except:
-    args = argparse.Namespace(display = None, save=None, cont=None, record=None)
+    args = argparse.Namespace(display = None, save=None, cont=None, record=None, play=None)
 
 work_dir = os.path.dirname(__file__)
 
@@ -37,12 +39,36 @@ def trans_obs(obs):
     obs = cv2.cvtColor(obs[0:82, 7:89, :], cv2.COLOR_BGR2HSV)
     lower = np.array([0, 0, 100], dtype="uint8")
     upper = np.array([0, 0, 110], dtype="uint8")
-    obs = cv2.resize(obs, (0, 0), fx = 0.5, fy = 0.5)
+    obs = cv2.resize(obs, (42, 42))
     obs = cv2.normalize(cv2.inRange(obs, lower, upper), None, 0, 1.0, cv2.NORM_MINMAX, dtype=cv2.CV_32F)
     return obs[np.newaxis, ...]
 
 env = gym.make('CarRacing-v2', render_mode="rgb_array")
 env = TransformObservation(env, trans_obs)
+
+if args.play:
+    obs_memory = []
+    n_frame = 0
+    def callback(obs_t, obs_tp1, action, rew, terminated, truncated, info):
+        global n_frame
+        if n_frame % 30 == 0:
+            obs_memory.append(obs_tp1)
+        n_frame += 1
+
+    play(env, keys_to_action={
+                             "w": np.array([0, 0.7, 0]),
+                             "a": np.array([-1, 0, 0]),
+                             "s": np.array([0, 0, 1]),
+                             "d": np.array([1, 0, 0]),
+                             "wa": np.array([-1, 0.7, 0]),
+                             "dw": np.array([1, 0.7, 0]),
+                             "ds": np.array([1, 0, 1]),
+                             "as": np.array([-1, 0, 1]),
+                            }, noop=np.array([0,0,0]), callback=callback)
+    vstack = np.stack(obs_memory)
+    print(vstack.shape)
+    np.save(os.path.join(work_dir, "obs.npy"), vstack)
+    exit(0)
 
 if args.display:
     env = HumanRendering(env)

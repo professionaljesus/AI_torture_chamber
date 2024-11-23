@@ -29,3 +29,28 @@ class ActorCriticCNN(nn.Module):
         std   = self.log_std.exp().diag()
         dist  = MultivariateNormal(mu, std)
         return dist, value
+
+
+
+class AutoEncoder(nn.Module):
+    def __init__(self):
+        super().__init__()
+
+        self.down1 = nn.Conv2d(1, 16, 3, stride=2, padding=1)
+        self.down2 = nn.Conv2d(16, 32, 3, stride=2, padding=1)
+        self.up1 = nn.ConvTranspose2d(32, 16, 3, stride=2, padding=1)
+        self.up2 = nn.ConvTranspose2d(16, 1, 3, stride=2, padding=1)
+
+
+    def forward(self, x):
+        print(x.shape)
+        x = F.leaky_relu(self.down1(x))
+
+        print(x.shape)
+        x = F.leaky_relu(self.down2(x))
+        print(x.shape)
+        x = self.up1(x)
+        print(x.shape)
+        x = self.up2(x)
+
+        return x
